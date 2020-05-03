@@ -1,0 +1,737 @@
+---
+title: "PEC 1: Análisis de microarrays"
+author: "Marina Villacampa Fernández"
+date: "`r format(Sys.time(), '%A, %e de %B, %Y')`"
+subtitle: 'Análisis de datos ómicos'
+output:
+  html_document:
+    
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+lang: en # language,  en: english (default), es: espa?ol, ca: catalan, ...
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+```
+
+
+El conjunto de datos de partida para este análisis de microarrays corresponde con el acceso de Gene Expression Omnibus 'GSE106151'. En este estudio se estudiaban el efecto del fármaco erlotinib en células de fibroblastos para parar o frenar el crecimiento de tumores.
+
+## Abstract      
+
+Análisis de fibroblastos de humano a partir de distintos tratamientos (100nM o 1$\mu$M de erlotinib, 1$\mu$M de DMSO o sin tratamiento) durante tres días, los cuales afectan al crecimiento de células tumorales. A estas muestras divididas en los 4 grupos según el tratamiento aplicado se les extrajo el ARN y se analizó con microarrays de tipo Human GeneChip 133 Plus 2.0 (esta información está disponible en el acceso 'GSE106151' de la base de datos GEO). Estos datos se va a analizar para obtener los genes diferencialmente expresados entre los distintos grupos de muestras, y las funciones biológicas de esos mismos genes, a fin de poder diferenciar los efectos de un fármaco u otro a la hora de intentar frenar o parar el crecimiento de las células tumorales.
+
+
+## Objetivos    
+
+Los objetivos principales de este estudio es estudiar, a partir de datos de expresión génica obtenidos con microarrays, cómo afecta el fármaco erlotinib en el transcriptoma de fibroblastos. El fármaco erlotinib se toma para parar o frenar el crecimiento de tumores. Por tanto, a partir de datos obtenidos con el microarray de Affymetrix Human GeneChip 133 Plus 2.0 generados en 4 tipos de muestras (pacientes sin tratar, tratados con erlotinib a dos concentraciones distintas o tratados con DMSO), se van a buscar los genes que están diferencialmente expresados entre los distintos tipos de muestras, y las funciones biológicas principales asociadas a estos genes.
+
+## Materiales y métodos   
+
+### 1. Datos de partida      
+
+El tipo de experimento que se llevó a cabo fue el desarrollo de perfiles de expresión por array. Los fibroblastos de la línea celular de estudio se dividieron en 4 grupos (se puede acceder al estudio publicado en este [**enlace**](https://www.ncbi.nlm.nih.gov/pubmed/?term=Wickersham+KE%5BAuthor%5D+fibroblast). Cada grupo se trató durante tres días de forma distinta, y al cuarto día se les realizó una extracción total de ARN para hibridarlo en microarrays de Affymetrix Human GeneChip 133 Plus 2.0.    
+
+Para este estudio, se parten de 18 muestras. 5 de ellas fueron tratadas con erlotinib a concentración 1$\mu$M, otras 5 fueron tratadas con erlotinib a concentración 100nM, 4 fueron tratadas con DMSO a concentración 1$\mu$M y las últimas 4 no fueron tratadas. 
+
+Estos datos están disponibles para su uso en la base de datos GEO (Gene Expression Omnibus) siguiendo el código 'GSE106151', en este [**enlace**](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE106151). A partir de estos datos, se va a llevar a cabo un estudio de comparación de grupos. Para ello, se van a realizar 4 tipos de contrastes para ver diferencias de expresión entre los distintos grupos:       
+
+- En primer lugar, se van a comparar las muestras de tratamiento con erlitinib a dos concentraciones distintas, para ver el efecto de usar el fármaco en mayor o menor concentración.        
+
+- Se van a realizar dos contrastes para comparar los dos grupos de muestras tratadas con erlitinib con dos concentraciones distintas con las muestras sin tratar, para ver el efecto del fármaco en comparación a no usar fármaco, a ambas concentraciones de erlitinib.        
+
+- El último contraste va a consistir en ver las diferencias de expresión entre el grupo sin tratar y el grupo tratado con DMSO, para así poder observar el efecto de este tratamiento.
+
+### 2. Métodos usados en el análisis     
+
+El 'pipeline' general que se ha seguido se divide principalmente en tres pasos: Exploración de los datos, control de calidad y preprocesado; selección de genes diferencialmente expresados y análisis de listas de genes.
+
+En el primer paso, se obtiene a partir de las intensidades obtenidas en el microarray una tabla con las expresiones de estas intensidades. Esta tabla deberá contener la información fenotípica asociada a estas muestras, principalmente el número de muestra y el grupo al que pertenece (dependiendo del tipo de tratamiento que haya recibido). Es necesario comprobar la calidad de los datos de entrada, a partir de diferentes gráficos, y se demuestra de esta forma que es necesario normalizar los datos originales para tener unos buenos datos de partida. Una vez normalizados, se vuelve a comprobar la calidad antes de seguir a los siguientes pasos.
+
+El segundo paso es a partir de estos datos normalizados, obtener los genes diferencialmente expresados, comparando grupos de muestras dos a dos. 
+
+A partir de estos genes diferencialmente expresados, la última parte de este análisis es obtener la significancia biológica, que consiste en obtener a partir de las listas de genes diferencialmente expresados, las funciones biológicas asociadas a estos genes.
+
+
+### 3. Pasos
+
+#### Exploración de los datos, control de calidad y preprocesado          
+
+Siguiendo el 'pipeline' previamente explicado el primer paso del informe es obtener y preprocesar los datos. Los datos del Acceso GSE106151 de la base de datos GEO se puede descargar gracias a la función 'getGEO' del paquete de R 'GEOquery', obteniendo un objeto de tipo 'ExpressionSet'. Este objeto contiene información fenotípica de las distintas muestras, como el número de muestra y el tipo de tratamiento que reciben, y a partir de esta información y de los ficheros con los datos de partida, se obtiene un objeto con las intensidades de cada sonda del microarray para cada muestra. 
+
+El objeto que se obtiene contiene la información de las señales  también incluye la siguiente información fenotípica de las muestras:
+```{r  echo=F, message=FALSE, warning=FALSE}
+library(GEOquery)
+library(affy)
+library(oligo)
+library(arrayQualityMetrics)
+library(ggplot2)
+library(ggrepel)
+library("pd.clariom.s.human")
+library(limma)
+library(hgu133plus2cdf)
+require(genefilter)
+library("hgu133plus2.db")
+library(gplots)
+library(ReactomePA)
+require(org.Hs.eg.db)
+rawData <- ReadAffy(celfile.path="geo_downloads/GSE106151/CEL", phenoData="geo_downloads/GSE106151/GSE106151_SelectPhenoData.txt")
+pData(rawData)$sample.levels <- c(rep("Erlot1", 5), rep("Erlot100", 5),rep("NoTreat", 4), rep("DMSO", 4))
+pData(rawData)$sample.labels <- c(paste("Erlot1", 1:5, sep="."), paste("Erlot100", 1:5, sep="."),paste("NoTreat", 1:4, sep="."), paste("DMSO", 1:4, sep="."))
+head(pData(rawData), n=3)
+```
+
+Con estos datos se va a trabajar más adelante, por lo que hay que comprobar la calidad de los datos de partida. Una forma de comprobar qué distribución tienen las intensidades de las sondas en cada muestra. En primer lugar, se obtiene un resumen estadístico de las intensidades en cada una de las muestras:
+
+![Gráfico de Componentes Principales de los datos sin procesar](Graphs/PCA_RawData.png  )
+
+![Gráfico de caja (Boxplot) de los datos sin procesar](Graphs/Boxplot_Raw.png)
+
+![Gráfico de densidad de los datos sin procesar](Graphs/Density_Raw.png)
+
+
+En las figuras 1, 2 y 3 se representan un gráfico de Componentes Principales, un Boxplot y un gráfico de densidad de las señales sin procesar. En estas tres figuras se aprecia la mala calidad de los datos de partida, ya que hay muchas intensidades muy elevadas en comparación con la media, por lo que es necesario normalizar para corregir la distribución.
+
+Además, el paquete de R 'arrayQualityMetrics' crea una serie de gráficos para ver la calidad de los datos de partida. Estos gráficos permiten observar si tienen una distribución normal los datos o si por contra es necesario de normalizar; o si los datos son de calidad suficiente o hay que transformar o filtrar los mismos para llevar a cabo el análisis.       
+
+Como el gráfico de cajas obtenido en la Figura 2 no se observa correctamente, se muestra en la Figura 4 el gráfico de caja de los datos sin normalizar obtenido con el paquete 'arrayQualityMetrics'.      
+
+![Boxplot de datos sin transformar (arrayQualityMetrics)](Graphs/Box_Raw.png)
+
+A partir de la calidad de los datos, se deduce que es muy necesario normalizar los datos al obtener la matriz de expresión de los datos. La función 'rma' del paquete 'affy' de R lleva a cabo el proceso de convertir las señales individuales en valores de expresión normalizados para cada gen. En este proceso, de forma automática normaliza los datos (a no ser que se especifique lo contrario) y realiza la corrección del ruido de fondo ('background'). Por tanto, a partir de los datos de partida 'rawData', se va a obtener el objeto tipo 'ExpressionSet' con las expresiones de los genes en cada muestra, normalizando los datos y corrigiendo el ruido de fondo:
+
+```{r echo=F}
+load (file="GSE106151/results/eset_NormFilt.Rda")
+```
+
+Para comprobar que la normalización ha mejorado la calidad de los datos, se vuelven a comprobar la calidad de los datos. Por tanto, se vuelven a obtener los gráficos de Componentes principales, el gráfico de caja (Boxplot) y el gráfico de densidad de las expresiones de los genes en las distintas muestras:
+
+
+![Gráfico de Componentes Principales de los datos normalizados](Graphs/PCA_Norm.png)
+
+![Gráfico de cajas (Boxplot) de los datos normalizados](Graphs/Boxplot_Norm.png)
+
+
+
+![Gráfico de densidad de los datos normalizados](Graphs/Density_Norm.png)
+
+![Boxplot de datos normalizados (arrayQualityMetrics)](Graphs/Box_Norm.png)
+
+En las figuras 5, 6 y 7 se ve que la calidad de los datos ha mejorado con respecto a los datos sin normalizar. En la Figura 8 se representa el gráfico Boxplot con los datos normalizados obtenidos con el paquete 'arrayQualityMetrics', comprobando también que la calidad de los datos mejora.
+
+Además de la normalización de los datos, es posible realizar un filtrado de los datos, a fin de eliminar señales que sean erróneas por diferentes motivos, disminuyendo el ruido de fondo. Este paso se puede realizar de manera sencilla con el paquete 'genefilter', descartando de este modo los genes que aportan más ruido de fondo que expresión diferencial. Al volver a representar el gráfico de Componentes Pincipales, el gráfico de cajas y el de densidad con los datos filtrados (figuras 9, 10 y 11), se obtiene que la calidad de los datos mejora con respecto a no filtrar.
+
+![Gráfico de Componentes Principales de los datos normalizados y filtrados](Graphs/PCA_filtered.png)
+
+
+![Gráfico de cajas (Boxplot) de los datos normalizados y filtrados](Graphs/Boxplot_filtered.png)
+
+![Gráfico de densidad de los datos normalizados y filtrados](Graphs/Density_filtered.png)
+
+
+A partir del objeto tipo 'ExpressionSet' con los genes filtrados se va a realizar la selección de los genes diferencialmente expresados en los siguientes pasos. El número de genes de los que se parten tras el filtrado varía también. Antes del filtrado, se tenían 54675 genes, y después del filtrado únicamente nos quedamos con 10087, esto es porque la variabilidad de los genes eliminados se podía atribuir a variación aleatoria, y por tanto no se esperaba que fueran a tener una expresión diferencial, por lo que se eliminaban para disminuir el ruido de fondo.     
+
+
+```{r echo=F}
+print(paste0('Genes previo al filtrado: ',dim(exprs(eset_rma))[1],sep=''))
+print(paste0('Genes después del filtrado: ',dim(exprs(eset_filtered))[1],sep=''))
+```
+
+
+#### Selección de genes diferencialmente expresados              
+
+La finalidad de este análisis es la búsqueda de genes cuya expresión cambia entre dos o más condiciones experimentales. En estos datos se partes de 4 condiciones experimentales distintas: muestras tratadas con erlotinib a dos concentraciones distintas, tratadas con DMSO y sin tratar. A partir de estas cuatro condiciones, se realizarán 4 contrastes distintos. Los dos primeros contrastes será comprobar si hay diferencia de expresión entre los dos grupos de muestras tratadas con erlotinib al compararlas con las muestras sin tratar respectivamente, por lo que se verá el efecto de tratar con erlonitib a dos concentraciones distintas. Otro tipo de contraste será comparar la expresión entre las muestras tratadas con erlotinib a concentraciones distintas, para ver si afecta la cantidad de fármaco en la expresión génica. El último contraste se realizará entre las muestras tratadas con DMSO y las muestras sin tratar, para ver si hay efecto a nivel de expresión génica al tratar con dicho fármaco. 
+
+Para poder seleccionar los genes diferencialmente expresados en los distintos contrastes, hay que establecer los contrastes en primer lugar:
+```{r echo=F}
+design <- model.matrix(~0 + sample.levels, pData(eset_filtered))
+rownames(design) <- pData(eset_filtered)$sample.labels
+colnames(design) <- levels(as.factor(pData(eset_filtered)$sample.levels))
+
+cont.matrix <- makeContrasts(Er1 =(Erlot1-NoTreat), 
+                             Er100=(Erlot100-NoTreat), 
+                             DMSO=(DMSO-NoTreat), 
+                             ErDif =(Erlot100-Erlot1),
+                             levels=design)
+cont.matrix
+```
+*Tabla 1: Matriz de contrastes*
+
+A partir de esta matriz de contrastes se obtienen los genes diferencialmente expresados en cada par de contrastes, calculando el estadístico de Bayes y el p-valor asociado a cada gen con el paquete 'limma' de R. Estos genes se van a ordenar en función del p-valor ajustado, y se obtiene para cada contraste la lista de los genes diferencialmente expresados ordenados por la significancia. Los genes con un p-valor menor (más significativo) son los que en cada contraste tienen una expresión más diferencial entre los dos tipos de muestras.
+
+#### Análisis de listas de genes            
+
+Los genes diferencialmente expresados en cada uno de los contrastes están nombrados como en la sonda del microarray. Esto no se corresponde con la identificación estándar de los genes, por lo que hay que realizar la anotación funcional de los genes para obtener el nombre genérico del gen y su definición. Para ello, hay paquetes diseñados para cada organismo y tipo de microarray. En este caso, se va a usar el paquete 'hgu133plus2.db', que incluye la información correspondiente al microarray de Affymetrix Human GeneChip 133 Plus 2.0.   
+
+Además se va a realizar una comparación de genes entre las distintas comparaciones. Esto es obtener los genes que han sido seleccionados en más de una comparación. Para verlo de forma más gráfica, se van a obtener también Diagramas De Venn para ver la relación de la cantidad de genes diferencialemente expresados coinciden entre las distintas comparaciones.    
+
+Por último, se va a realizar un análisis de la significancia biológica. Esto es obtener las funciones biológicas asociadas a los genes seleccionados con expresión diferencial en cada comparación. Además, se obtiene un gráfico de tipo 'cnet' en que se representa esta significancia biológica.
+
+## Resultados      
+
+A partir de las expresiones de los genes en las distintas muestras se busca obtener los genes diferencialmente expresados en las comparaciones establecidas siguiendo la matriz de contrastes (Tabla 1) para ello. A partir del paquete 'limma', se pueden obtener los genes diferencialmente expresados en cada contraste en un array, incluyendo el estadístico de Bayes y el p-valor de cada gen en cada contraste (aquellos genes con un p-valor menor serán los más significativos, con una expresión más diferencial):
+
+```{r}
+fit.main <- lmFit(eset_filtered, design)
+fit.main <- contrasts.fit(fit.main,cont.matrix)
+fit.main <- eBayes(fit.main)
+class(fit.main)
+```
+
+Se obtiene por tanto el objeto tipo MArrayLM del paquete 'limma'. Con estos datos, se obtiene para cada contraste, el listado de genes ordenados en función del p-valor, en función de su significancia. Partiendo de los 10087 genes de los que se partía, se obtienen para cada contraste el número de genes diferencialmente expresados en función de si se acepta un nivel de significancia del 5% (p-valor<0.05) o un nivel de significancia del 1% (p-valor<0.01):    
+
+Primeros 10 genes diferencialmente expresados en el contraste 'Er1' (erlotinib a 1microM frente a no tratamiento):
+```{r echo=F}
+topTab_Er1 <- topTable(fit.main, number=nrow(fit.main), coef='Er1',adjust='fdr')
+head(topTab_Er1, n=10)
+```
+Número de DEG con significancia al 5%: `r dim(topTab_Er1[topTab_Er1$adj.P.Val<0.05,])[1]`
+Número de DEG con significancia al 1%: `r dim(topTab_Er1[topTab_Er1$adj.P.Val<0.01,])[1]`
+
+
+Primeros 10 genes diferencialmente expresados en el contraste 'Er100' (erlotinib a 100nanoM frente a no tratamiento):
+```{r echo=FALSE}
+topTab_Er100 <- topTable(fit.main, number=nrow(fit.main), coef='Er100',adjust='fdr')
+head(topTab_Er100, n=10)
+```
+
+Número de DEG con significancia al 5%: `r dim(topTab_Er100[topTab_Er100$adj.P.Val<0.05,])[1]`
+Número de DEG con significancia al 1%: `r dim(topTab_Er100[topTab_Er100$adj.P.Val<0.01,])[1]`
+
+
+Primeros 10 genes diferencialmente expresados en el contraste 'DMSO' (DMSO a 1 microM frente a no tratamiento):
+```{r echo=FALSE}
+topTab_DMSO <- topTable(fit.main, number=nrow(fit.main), coef='DMSO',adjust='fdr')
+head(topTab_DMSO, n=10)
+```
+
+Número de DEG con significancia al 5%: `r dim(topTab_DMSO[topTab_DMSO$adj.P.Val<0.05,])[1]`
+Número de DEG con significancia al 1%: `r dim(topTab_DMSO[topTab_DMSO$adj.P.Val<0.01,])[1]`
+
+
+Primeros 10 genes diferencialmente expresados en el contraste 'ErDif' (erlotinib a 1 microM frente a erlotinib a 100nanoM):
+```{r echo=FALSE}
+topTab_ErDif <- topTable(fit.main, number=nrow(fit.main), coef='ErDif',adjust='fdr')
+head(topTab_ErDif, n=10)
+```
+
+Número de DEG con significancia al 5%: `r dim(topTab_ErDif[topTab_ErDif$adj.P.Val<0.05,])[1]`
+Número de DEG con significancia al 1%: `r dim(topTab_ErDif[topTab_ErDif$adj.P.Val<0.01,])[1]`
+
+
+Se observa que en todos los contrastes, el número de genes diferencialmente expresados (DEG) disminuye considerablemente con respecto al número de genes de partida (10087 genes), especialmente en el contraste 'DMSO', con únicamente 244 genes al 5% de significancia y 82 genes al 1% de significancia.      
+
+Una vez se tienen los genes diferencialmente expresados, como bien se comentó en el apartado de 'Materiales y métodos', hay que cambiar la terminología de los genes (como están denominados), ya que como se aprecia en el listado de los 10 primeros genes diferencialmente expresados en cada contraste, no son los nombres estándar con que se suelen nombrar los genes. Para ello, se anotan los resultados de los genes diferencialmente obtenidos en este paso con la función 'annotatedTopTable' y el paquete de anotación correspondiente a este tipo de microarray 'hgu133plus2.db'.
+```{r echo=F}
+annotatedTopTable <- function(topTab, anotPackage)
+ {
+   topTab <- cbind(PROBEID=rownames(topTab), topTab)
+   myProbes <- rownames(topTab)
+   thePackage <- eval(parse(text = anotPackage))
+   geneAnots <- select(thePackage, myProbes, c("SYMBOL", "ENTREZID", "GENENAME"))
+   annotatedTopTab<- merge(x=geneAnots, y=topTab, by.x="PROBEID", by.y="PROBEID")
+ return(annotatedTopTab)
+ }
+```
+
+
+Se muestra a continuación para cada contraste, las primeras líneas del dataframe obtenido al analizar los datos, mostrando únicamente las columnas correspondiente al nombre del gen en el microarray, el gen al que corresponde, el p-valor ajustado de la significancia de dicho gen sobre su expresión diferencial en dicho contraste y su función (en este orden):
+
+Para el contraste 'Er1' (erlotinib a 1 microM frente a no tratamiento):      
+```{r echo=FALSE}
+topAnnotated_Er1 <- annotatedTopTable(topTab_Er1,
+ anotPackage="hgu133plus2.db")
+head(topAnnotated_Er1[,c(1,2,9,4)])
+```
+
+Para el contraste 'Er100' (erlotinib a 100 nanoM frente a no tratamiento):     
+```{r echo=FALSE}
+topAnnotated_Er100 <- annotatedTopTable(topTab_Er100,
+ anotPackage="hgu133plus2.db")
+head(topAnnotated_Er100[,c(1,2,9,4)])
+```
+
+Para el contraste 'ErDif' (erlotinib a 1 microM frente a erlotinib a 100 nanoM):
+```{r echo=FALSE}
+topAnnotated_ErDif <- annotatedTopTable(topTab_ErDif,
+ anotPackage="hgu133plus2.db")
+head(topAnnotated_ErDif[,c(1,2,9,4)])
+```
+
+Para el contraste 'DMSO' (DMSO a 1 microM frente a no tratamiento):
+```{r echo=F, warning=F}
+topAnnotated_DMSO <- annotatedTopTable(topTab_DMSO,
+ anotPackage="hgu133plus2.db")
+head(topAnnotated_DMSO[,c(1,2,9,4)])
+```
+
+Es posible visualizar esta expresión diferencial obtenida en un diagrama VolcanoPlot, en el que se va a observar todos los genes correspondientes para el contraste, y aquellos genes con una expresión diferencial serán aquellos con un valor de logFC mayor que 1 en valor absoluto, y con un p-valor mínimo de 0.01. Por tanto, se obtienen los 4 gráficos de tipo volcán, uno por cada contraste (figuras 12, 13, 14 y 15).     
+
+![Volcanoplot del contraste 'Er1'](Graphs/VolcanoEr1.png)
+
+![Volcanoplot del contraste 'Er100'](Graphs/VolcanoEr100.png)
+
+![Volcanoplot del contraste 'DMSO'](Graphs/VolcanoDMSO.png)
+
+![Volcanoplot del contraste 'ErDif'](Graphs/VolcanoErDif.png)
+
+Una vez se tienen los genes diferencialmente expresados anotados, es posible comparar los genes que coinciden entre las distintas comparaciones. Se obtiene una matriz con los genes, indicando en qué comparación están diferencialmente expresados, y si están 'Up-Regulated' (regulados positivamente) o 'Down-Regulated' (regulados de forma negativa). Para cada contraste, se obtienen estos números de genes diferencialmente expresados:
+```{r echo=FALSE}
+res<-decideTests(fit.main, method="separate", adjust.method="fdr", p.value=0.01, lfc=1)
+summary(res)
+```
+Siendo 'NotSig' los genes que no están diferencialmente expresados, 'Down' los genes regulados negativamente y 'Up' los genes regulados positivamente.
+
+Para ver los genes diferencialmente expresados que coinciden entre las comparaciones, se representan Diagramas de Venn (figuras 16, 17, 18 y 19).
+
+![Diagrama de Venn entre los contrastes 'Er1', 'Er100' y 'ErDif'](Graphs/VennDMSO.png)
+
+![Diagrama de Venn entre los contrastes 'Er1', 'Er100' y DMSO](Graphs/VennErDif.png)
+
+![Diagrama de Venn entre los contrastes 'Er1', 'ErDif' y 'DMSO'](Graphs/VennEr100.png)
+
+![Diagrama de Venn entre los contrastes 'DMSO', 'Er100' y 'ErDif'](Graphs/VennEr1.png)
+
+Con estas imágenes de los diagramas de Venn, se observa que muchos de los genes diferencialmente expresados coinciden entre los contrastes, ya que los contrastes están interrelacionados. Es destacable que los dos contrastes que más genes diferencialmente expresados comparten son los contrastes 'Er1' y 'ErDif', lo que podría estar relacionado con la efectividad (o falta de efectividad) del tratamiento con erlotinib a 100nanoMolar, ya que se asemeja el contraste de erlotinib a 1microM frente a 100nanoMolar con el contraste de 1microM frente a no tratamiento.   
+
+Para ver la relación entre los distintos grupos, se puede representar la expresión de los genes de cada muestra en un HeatMap, pero sin forzar a los genes y muestras a ordenarse según la matriz de los datos, sino agrupandolos por semejanza (Figura 20). Se distingue que hay patrones de expresión y diferencias entre las muestras.
+
+![Heatmap agrupando por semejanza](Graphs/HeatmapAgrup.png)
+
+Por último, en este análisis de los datos de microarrays, se realiza el análisis de significancia de los genes diferencialmente expresados. En este proceso, se obtienen las funciones biológicas asociadas a los genes diferencialmente expresados, lo que servirá para ver en qué funciones afecta el usar un fármaco u otro en el tratamiento de estas células. 
+
+En este proceso, se obtienen unos gráficos para cada contraste, en el que se representa en forma de red las principales funciones biológicas de los genes diferencialmente expresados. En estos gráficos (figuras 21, 22, 23 y 24), los correspondientes a los contrastes 'Er100' y 'DMSO' (figuras 22 y 23 respectivamente) se observan las distintas relaciones de las funciones obtenidas. Sin embargo, en los gráficos obtenidos a partir de los contrastes 'Er1' y 'ErDif' (figuras 21 y 24 respectivamente), al haberse encontrado tantos genes diferencialmente expresados, las redes que se obtienen son compactas con muchas interrelaciones.  
+
+
+![Red de funciones del contraste 'Er1'](Graphs/NetEr1.png)
+
+![Red de funciones del contraste 'Er100'](Graphs/NetEr100.png)
+
+![Red de funciones del contraste 'DMSO'](Graphs/NetDMSO.png)
+
+![Red de funciones del contraste 'ErDif'](Graphs/NetErDif.png)
+
+
+
+
+
+
+Por último, se crea un archivo para cada contraste con las funciones biológicas que están más asociadas a los genes diferencialmente expresados. Estos archivos incluyen las funciones biológicas, los genes que se asocian a estas funciones, y el p-valor de cada función biológica (cuanto menor es dicho valor, más relacionada está esta función el conjunto de genes diferencialmente expresados de cada contraste), entre otros valores (como los ratios calculados para obtener el p-valor).   
+
+Primeros valores de la tabla de las funciones biológicas obtenidas del contraste 'Er1' (mostrando solo las columnas del identificador de la función, la descripción de dicha función y el p-valor ajustado asociado):
+```{r echo=F}
+funcBiolEr1 <- read.csv('results/ReactomePA.Results.Er1.csv')
+head(funcBiolEr1[,c(1,2,6)])
+```
+
+
+## Discusión        
+
+La principal limitación de estos análisis es la calidad de los datos de partida. Generalmente, se tiene un presupuesto limitado, y la obtención de estos datos no suele ser económico. Es por esto que aunque los datos de partida no sean los óptimos, se usen de todos modos. Es lo que ocurre en estos datos, que la calidad de los datos de partida no era la ideal (como bien se observaba en los gráficos de partida). Al normalizarlos, la calidad mejoraba, permitiendo trabajar con estos, aunque distaba de ser la calidad óptima para este tipo de análisis.  
+
+## Conclusión        
+
+Este paso no sería necesario     
+
+## Apéndice     
+
+Código en R obtenido para realizar el informe:
+```{r eval=FALSE}
+## LIBRARIES
+library(GEOquery)
+library(affy)
+library(oligo)
+library(arrayQualityMetrics)
+library(ggplot2)
+library(ggrepel)
+library("pd.clariom.s.human")
+library(limma)
+library(hgu133plus2cdf)
+require(genefilter)
+library("hgu133plus2.db")
+library(gplots)
+library(ReactomePA)
+require(org.Hs.eg.db)
+
+# Lo primero es leer los ficheros para guardar las lecturas
+if(!file.exists("geo_downloads")) dir.create("geo_downloads")
+if(!file.exists("results"))  dir.create("results", recursive=TRUE)
+GEOgse <- getGEO(GEO="GSE106151", filename=NULL, destdir="./geo_downloads", GSElimits=NULL, 
+                 GSEMatrix=TRUE, AnnotGPL=FALSE, getGPL=FALSE)
+class(GEOgse) # 'list'
+# como se obtiene un objeto de tipo lista, se descarta el resto de objetos para obtener solo el 
+#objeto tipo ExpressionSet
+GEOgse <- GEOgse[[1]]
+class(GEOgse) # 'EspressionSet'
+
+# Se comprueba que se han cargado de forma correcta los datos
+head(exprs(GEOgse))
+
+if(!file.exists('./geo_downloads/GSE106151'))
+  getGEOSuppFiles('GSE106151', makeDirectory=T, baseDir="geo_downloads")
+
+
+untar("geo_downloads/GSE106151/GSE106151_RAW.tar", exdir="geo_downloads/GSE106151/CEL")
+list.files("geo_downloads/GSE106151/CEL")
+
+# se obtiene el listado de los ficheros de las 18 muestras de partida
+my.cels <- sort(list.files('./geo_downloads/GSE106151/CEL'))
+my.cels
+
+# Se preparan los datos para guardar los datos fenotípicos:
+phenoD <- as.data.frame(pData(GEOgse), stringsAsFactors=F)[, c("title", "geo_accession", 
+                                                               "description")]
+phenoD <- phenoD[order(rownames(phenoD)), ]
+
+# Los nombres de las filas deben de corresponder con los nombres de los ficheros (en los datos 
+#fenotípicos):
+rownames(phenoD) <- my.cels
+
+write.table(phenoD, file=paste0('./geo_downloads/GSE106151/GSE106151_SelectPhenoData.txt'), 
+            sep="\t", quote=F)
+
+## Se obtienen los datos de partida para estudiar: 'rawData'
+rawData <- ReadAffy(celfile.path="geo_downloads/GSE106151/CEL", 
+                    phenoData="geo_downloads/GSE106151/GSE106151_SelectPhenoData.txt")
+head(rawData)
+
+### 1. Identificar que grupos hay y a qué grupo pertenece cada muestra.
+
+# A partir de los nombres de los ficheros de las muestras, se pueden crear dos nuevas columnas
+# con la numeración de las muestras y el grupo al que pertenecen:
+my.cels
+# Erlot 1 -> tratamiento con Erlotinib con concentración 1 microMolar
+# Erlot100 -> tratamiento con Erlotinib con concentración 100 nanoMolar
+# NoTreat -> Sin tratamiento
+# DMSO -> tratamiento con DMSO
+pData(rawData)$sample.levels <- c(rep("Erlot1", 5), rep("Erlot100", 5), 
+                                  rep("NoTreat", 4), rep("DMSO", 4))
+pData(rawData)$sample.labels <- c(paste("Erlot1", 1:5, sep="."), paste("Erlot100", 1:5, sep="."), 
+                                  paste("NoTreat", 1:4, sep="."), paste("DMSO", 1:4, sep="."))
+head(pData(rawData))
+
+# Obtener el resumen estadístico de las intensidades en cada muestra:
+rawDaata <- rawData
+colnames(exprs(rawDaata)) <- pData(rawData)$sample.labels
+apply(exprs(rawDaata),2,summary)
+
+
+### 2. Control de calidad de los datos crudos
+arrayQualityMetrics(rawData, outdir = file.path("./results", "QCDir.Raw"), force=TRUE)
+
+plotPCA3 <- function(datos, labels, factor, title, scale,colores, size = 1.5, glineas = 0.25) {
+   data <- prcomp(t(datos),scale=scale)
+   # plot adjustments
+   dataDf <- data.frame(data$x)
+   Group <- factor
+   loads <- round(data$sdev^2/sum(data$sdev^2)*100,1)
+   # main plot
+   p1 <- ggplot(dataDf,aes(x=PC1, y=PC2)) +
+     theme_classic() +
+     geom_hline(yintercept = 0, color = "gray70") +
+     geom_vline(xintercept = 0, color = "gray70") +
+     geom_point(aes(color = Group), alpha = 0.55, size = 3) +
+     coord_cartesian(xlim = c(min(data$x[,1])-5,max(data$x[,1])+5)) +
+     scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   p1 + geom_text_repel(aes(y = PC2 + 0.25, label = labels),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",loads[1],"%")),y=c(paste("PC2",loads[2],"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+}
+
+# PCA a partir de los datos crudos
+plotPCA3(exprs(rawData), labels = pData(rawData)$sample.labels, pData(rawData)$sample.levels, 
+          title="Datos sin transformar", scale = FALSE, size = 3, 
+          colores = c("red", "blue", "green", "yellow"))
+# boxplot de los datos crudos
+boxplot(exprs(rawData),names=pData(rawData)$sample.labels, 
+          col=c("red", "blue", "green", "yellow"), main="Datos sin transformar")
+legend("topright", legend=c('Erlot1','Erlot100','NoTreat','DMSO'), fill=c("red", "blue", 
+                                                                          "green", "yellow"))
+# density plot de los datos crudos
+plotDensities(exprs(rawData), legend=F, col=c("red", "blue", "green", "yellow"), 
+              main="Datos sin transformar")
+legend("topright", legend=c('Erlot1','Erlot100','NoTreat','DMSO'), 
+       fill=c("red", "blue", "green", "yellow"))
+
+
+### 3. Normalización
+eset_rma <- affy::rma(rawData)
+
+### 4. [Control de calidad de los datos normalizados] (opcional)
+arrayQualityMetrics(eset_rma, outdir = file.path("./results", "QCDir.Norm"), force=TRUE)
+
+# PCA a partir de las expresiones normalizadas
+plotPCA3(exprs(eset_rma), labels = pData(eset_rma)$sample.labels, pData(eset_rma)$sample.levels, 
+         title="Datos normalizados", scale = FALSE, size = 3, 
+         colores = c("red", "blue", "green", "yellow"))
+# boxplot de las expresiones normalizadas
+boxplot(exprs(eset_rma),names=pData(eset_rma)$sample.labels, 
+        col=c(rep("red",5), rep("blue",5), rep("green",4), rep("yellow",4)), 
+        main="Datos normalizados")
+legend("topright", legend=c('Erlot1','Erlot100','NoTreat','DMSO'), 
+       fill=c("red", "blue", "green", "yellow"))
+# density plot de las expresiones normalizadas
+plotDensities(exprs(eset_rma), legend=F, col=c("red", "blue", "green", "yellow"), 
+              main="Datos normalizados")
+legend("topright", legend=c('Erlot1','Erlot100','NoTreat','DMSO'), 
+       fill=c("red", "blue", "green", "yellow"))
+
+### 5. Filtraje no específico [opcional]
+filtered <- nsFilter(eset_rma, require.entrez=TRUE,
+                     remove.dupEntrez=TRUE, var.func=IQR,
+                     var.cutoff=0.5, var.filter=TRUE,
+                     filterByQuantile=TRUE, feature.exclude="^AFFX")
+names(filtered)
+class(filtered$eset)
+dim(exprs(filtered$eset))
+print(filtered$filter.log)
+eset_filtered <-filtered$eset
+resultsDir <- "GSE106151/results"
+save(eset_rma, eset_filtered, file=file.path(resultsDir, "eset_NormFilt.Rda"))
+
+# PCA a partir de los datos filtrados
+plotPCA3(exprs(eset_filtered), labels = pData(eset_filtered)$sample.labels, 
+         pData(eset_filtered)$sample.levels, 
+         title="Datos filtrados", scale = FALSE, size = 3, 
+         colores = c("red", "blue", "green", "yellow"))
+# boxplot de los datos filtrados
+boxplot(exprs(eset_filtered),names=pData(eset_filtered)$sample.labels, 
+        col=c(rep("red",5), rep("blue",5), rep("green",4), rep("yellow",4)), 
+        main="Datos filtrados")
+legend("topright", legend=c('Erlot1','Erlot100','NoTreat','DMSO'), 
+       fill=c("red", "blue", "green", "yellow"))
+# density plot de los datos filtrados
+plotDensities(exprs(eset_filtered), legend=F, col=c("red", "blue", "green", "yellow"), 
+              main="Datos filtrados")
+legend("topright", legend=c('Erlot1','Erlot100','NoTreat','DMSO'), 
+       fill=c("red", "blue", "green", "yellow"))
+
+
+### 6. Identificación de genes diferencialmente expresados
+if (!exists("eset_filtered")) 
+  load (file="GSE106151/results/eset_NormFilt.Rda")
+
+# A partir del paquete limma
+# Hay que obtener la matriz de diseño de las muestras en primer lugar:
+design <- model.matrix(~0 + sample.levels, pData(eset_filtered))
+rownames(design) <- pData(eset_filtered)$sample.labels
+colnames(design) <- levels(as.factor(pData(eset_filtered)$sample.levels))
+design
+
+#Obtener la matriz de contrastes 
+cont.matrix <- makeContrasts(Er1 =(Erlot1-NoTreat), 
+                             Er100=(Erlot100-NoTreat), 
+                             DMSO=(DMSO-NoTreat), 
+                             ErDif =(Erlot100-Erlot1),
+                             levels=design)
+cont.matrix
+fit.main <- lmFit(eset_filtered, design)
+fit.main <- contrasts.fit(fit.main,cont.matrix)
+fit.main <- eBayes(fit.main)
+class(fit.main)
+
+# Listas DEG:
+topTab_Er1 <- topTable(fit.main, number=nrow(fit.main), coef='Er1',adjust='fdr')
+head(topTab_Er1)
+dim(topTab_Er1[topTab_Er1$adj.P.Val<0.05,])[1] #número de DEG significancia del 5%
+dim(topTab_Er1[topTab_Er1$adj.P.Val<0.01,])[1] #número de DEG significancia del 1%
+
+topTab_Er100 <- topTable(fit.main, number=nrow(fit.main), coef='Er100',adjust='fdr')
+head(topTab_Er100)
+dim(topTab_Er100[topTab_Er100$adj.P.Val<0.05,])[1] #número de DEG significancia del 5%
+dim(topTab_Er100[topTab_Er100$adj.P.Val<0.01,])[1] #número de DEG significancia del 1%
+
+topTab_DMSO <- topTable(fit.main, number=nrow(fit.main), coef='DMSO',adjust='fdr')
+head(topTab_DMSO)
+dim(topTab_DMSO[topTab_DMSO$adj.P.Val<0.05,])[1] #número de DEG significancia del 5%
+dim(topTab_DMSO[topTab_DMSO$adj.P.Val<0.01,])[1] #número de DEG significancia del 1%
+
+topTab_ErDif <- topTable(fit.main, number=nrow(fit.main), coef='ErDif',adjust='fdr')
+head(topTab_ErDif)
+dim(topTab_ErDif[topTab_ErDif$adj.P.Val<0.05,])[1] #número de DEG significancia del 5%
+dim(topTab_ErDif[topTab_ErDif$adj.P.Val<0.01,])[1] #número de DEG significancia del 1%
+
+### 7. Anotación de los resultados
+
+annotatedTopTable <- function(topTab, anotPackage)
+ {
+   topTab <- cbind(PROBEID=rownames(topTab), topTab)
+   myProbes <- rownames(topTab)
+   thePackage <- eval(parse(text = anotPackage))
+   geneAnots <- select(thePackage, myProbes, c("SYMBOL", "ENTREZID", "GENENAME"))
+   annotatedTopTab<- merge(x=geneAnots, y=topTab, by.x="PROBEID", by.y="PROBEID")
+ return(annotatedTopTab)
+ }
+
+topAnnotated_Er1 <- annotatedTopTable(topTab_Er1,
+ anotPackage="hgu133plus2.db")
+write.csv(topAnnotated_Er1, file="./results/topAnnotated_Er1.csv")
+
+topAnnotated_Er100 <- annotatedTopTable(topTab_Er100,
+ anotPackage="hgu133plus2.db")
+write.csv(topAnnotated_Er100, file="./results/topAnnotated_Er100.csv")
+
+topAnnotated_DMSO <- annotatedTopTable(topTab_DMSO,
+ anotPackage="hgu133plus2.db")
+write.csv(topAnnotated_DMSO, file="./results/topAnnotated_DMSO.csv")
+
+topAnnotated_ErDif <- annotatedTopTable(topTab_ErDif,
+ anotPackage="hgu133plus2.db")
+write.csv(topAnnotated_ErDif, file="./results/topAnnotated_ErDif.csv")
+
+## Visualizar expresión diferencial obtenida: VOLCANOPLOTS
+geneSymbols <- select(hgu133plus2.db, rownames(fit.main), c("SYMBOL")) 
+SYMBOLS<- geneSymbols$SYMBOL
+
+# 'Er1'
+volcanoplot(fit.main, coef=1, highlight=4, names=SYMBOLS, 
+  main=paste("Genes diferencialmente expresados", colnames(cont.matrix)[1], sep="\n"))
+abline(v=c(-1,1))
+abline(h=c(2))
+
+# 'Er100'
+volcanoplot(fit.main, coef=2, highlight=4, names=SYMBOLS, 
+            main=paste("Genes diferencialmente expresados", colnames(cont.matrix)[2], sep="\n"))
+abline(v=c(-1,1))
+abline(h=c(2))
+
+# 'DMSO'
+volcanoplot(fit.main, coef=3, highlight=4, names=SYMBOLS, 
+            main=paste("Genes diferencialmente expresados", colnames(cont.matrix)[3], sep="\n"))
+abline(v=c(-1,1))
+abline(h=c(2))
+
+# 'ErDif'
+volcanoplot(fit.main, coef=4, highlight=4, names=SYMBOLS, 
+            main=paste("Genes diferencialmente expresados", colnames(cont.matrix)[4], sep="\n"))
+abline(v=c(-1,1))
+abline(h=c(2))
+
+### 8. Comparación entre distintas comparaciones 
+res<-decideTests(fit.main, method="separate", adjust.method="fdr", p.value=0.01, lfc=1)
+sum.res.rows<-apply(abs(res),1,sum)
+res.selected<-res[sum.res.rows!=0,]
+summary(res)
+vennDiagram (res.selected[,1:3], cex=0.9)
+vennDiagram (res.selected[,2:4], cex=0.9)
+vennDiagram (res.selected[,c(1,3,4)], cex=0.9)
+vennDiagram (res.selected[,c(1,2,4)], cex=0.9)
+
+# se puede visualizar también gracias a un HeatMap:
+probesInHeatmap <- rownames(res.selected)
+HMdata <- exprs(eset_filtered)[rownames(exprs(eset_filtered)) %in% probesInHeatmap,]
+geneSymbols <- select(hgu133plus2.db, rownames(HMdata), c("SYMBOL"))
+SYMBOLS<- geneSymbols$SYMBOL
+rownames(HMdata) <- SYMBOLS
+write.csv(HMdata, file = file.path("./results/data4Heatmap.csv"))
+my_palette <- colorRampPalette(c("blue", "red"))(n = 299)
+
+# HeatMap sin agrupar, ordenados según columnas
+heatmap.2(HMdata,
+        Rowv = FALSE,
+        Colv = FALSE,
+        main = "Genes diferencialmente expresados \n FDR < 0,1, logFC >=1",
+        scale = "row",
+        col = my_palette,
+        sepcolor = "white",
+        sepwidth = c(0.05,0.05),
+        cexRow = 0.5,
+        cexCol = 0.9,
+        key = TRUE,
+        keysize = 1.5,
+        density.info = "histogram",
+        ColSideColors = c(rep("red",5),rep("blue",5), rep("green",4), rep("yellow",4)),
+        tracecol = NULL,
+        dendrogram = "none",
+        srtCol = 30)
+
+# Heatmap agrupados por similaridad
+heatmap.2(HMdata,
+        Rowv = TRUE,
+        Colv = TRUE,
+        dendrogram = "both",
+        main = "Genes diferencialmente expresados \n FDR < 0,1, logFC >=1",
+        scale = "row",
+        col = my_palette,
+        sepcolor = "white",
+        sepwidth = c(0.05,0.05),
+        cexRow = 0.5,
+        cexCol = 0.9,
+        key = TRUE,
+        keysize = 1.5,
+        density.info = "histogram",
+        ColSideColors = c(rep("red",5),rep("blue",5), rep("green",4), rep("yellow",4)),
+        tracecol = NULL,
+        srtCol = 30)
+
+### 9. Análisis de significación biológica ("Gene Enrichment Analysis")
+listOfTables <- list(Er1 = topTab_Er1, 
+    Er100 = topTab_Er100, DMSO = topTab_DMSO,
+    ErDif = topTab_ErDif)
+listOfSelected <- list()
+#topAnnotated_Er100
+for (i in 1:length(listOfTables)){
+   # select the toptable
+   topTab <- listOfTables[[i]]
+   # select the genes to be included in the analysis
+   whichGenes<-topTab["adj.P.Val"]<0.15
+   selectedIDs <- rownames(topTab)[whichGenes]
+   # convert the ID to Entrez
+   EntrezIDs<- select(hgu133plus2.db, selectedIDs, c("ENTREZID"))
+   EntrezIDs <- EntrezIDs$ENTREZID
+   listOfSelected[[i]] <- EntrezIDs
+   names(listOfSelected)[i] <- names(listOfTables)[i]
+}
+sapply(listOfSelected, length)
+
+mapped_genes2GO <- mappedkeys(org.Hs.egGO)
+mapped_genes2KEGG <- mappedkeys(org.Hs.egPATH)
+mapped_genes <- union(mapped_genes2GO , mapped_genes2KEGG)
+
+# library(ReactomeAP)
+listOfData <- listOfSelected[1:4]
+comparisonsNames <- names(listOfData)
+universe <- mapped_genes
+
+for (i in 1:length(listOfData)){
+   genesIn <- listOfData[[i]]
+   comparison <- comparisonsNames[i]
+   enrich.result <- enrichPathway(gene = genesIn,
+                                  pvalueCutoff = 0.05,
+                                  readable = T,
+                                  pAdjustMethod = "BH",
+                                  organism = "human",
+                                  universe = universe)
+   
+   cat("##################################")
+   cat("\nComparison: ", comparison,"\n")
+   print(head(enrich.result))
+ 
+   if (length(rownames(enrich.result@result)) != 0) {
+   write.csv(as.data.frame(enrich.result), 
+              file =paste0("./results/","ReactomePA.Results.",comparison,".csv"), 
+              row.names = FALSE)
+   
+   pdf(file=paste0("./results/","ReactomePABarplot.",comparison,".pdf"))
+     print(barplot(enrich.result, showCategory = 15, font.size = 4, 
+             title = paste0("Reactome Pathway Analysis for ", comparison,". Barplot")))
+   dev.off()
+   
+   pdf(file = paste0("./results/","ReactomePAcnetplot.",comparison,".pdf"))
+     print(cnetplot(enrich.result, categorySize = "geneNum", schowCategory = 15, 
+          vertex.label.cex = 0.75))
+   dev.off()
+   }
+}
+funcBiolEr1 <- read.csv('results/ReactomePA.Results.Er1.csv')
+head(funcBiolEr1,n=1)
+```
